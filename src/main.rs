@@ -20,7 +20,7 @@ use nocy_wallet_feed::config::{Config, SERVER_SECRET_BYTES};
 use nocy_wallet_feed::keepalive::KeepaliveManager;
 use nocy_wallet_feed::ledger_state_store::LedgerStateStore;
 use nocy_wallet_feed::metrics;
-use nocy_wallet_feed::merkle_readiness::start_merkle_readiness_tracker;
+use nocy_wallet_feed::merkle_readiness::{start_merkle_readiness_tracker, MerkleReadinessHealth};
 use nocy_wallet_feed::routes::feed::get_feed;
 use nocy_wallet_feed::routes::status::get_status;
 use nocy_wallet_feed::routes::session::{session_routes, SessionState};
@@ -41,6 +41,7 @@ pub struct AppState {
     pub keepalive_manager: KeepaliveManager,
     pub snapshot_client: Arc<SnapshotClient>,
     pub ledger_state_store: Arc<LedgerStateStore>,
+    pub merkle_readiness_health: Arc<MerkleReadinessHealth>,
     pub metrics_handle: metrics_exporter_prometheus::PrometheusHandle,
     /// Server secret for deterministic session ID generation.
     /// This is initialized once at startup and reused for all sessions.
@@ -91,6 +92,7 @@ struct ReadyResponse {
 struct ReadinessChecks {
     postgres: bool,
     nats: bool,
+    merkle_readiness: bool,
 }
 
 async fn healthz() -> impl IntoResponse {
@@ -120,12 +122,26 @@ async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
         warn!("NATS readiness check failed");
     }
 
+    let merkle_status = state
+        .merkle_readiness_health
+        .status(state.config.merkle_readiness_stall_threshold());
+    let merkle_readiness_ok = !merkle_status.stalled;
+    if !merkle_readiness_ok {
+        warn!(
+            chain_head = merkle_status.chain_head,
+            merkle_ready_height = merkle_status.merkle_ready_height,
+            stall_seconds = merkle_status.stall_duration.as_secs(),
+            "Merkle readiness stalled"
+        );
+    }
+
     let checks = ReadinessChecks {
         postgres: postgres_ok,
         nats: nats_ok,
+        merkle_readiness: merkle_readiness_ok,
     };
 
-    let all_ready = checks.postgres && checks.nats;
+    let all_ready = checks.postgres && checks.nats && checks.merkle_readiness;
 
     let status_code = if all_ready {
         StatusCode::OK
@@ -272,8 +288,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Create ledger state store for canonical collapsed updates
     info!("Initializing ledger state store...");
-    let ledger_state_store = Arc::new(LedgerStateStore::new(nats_client.clone()));
+    let ledger_state_store = Arc::new(LedgerStateStore::with_fetch_timeout(
+        nats_client.clone(),
+        config.ledger_state_fetch_timeout(),
+    ));
     info!("Ledger state store initialized");
+
+    let merkle_readiness_health = Arc::new(MerkleReadinessHealth::new());
 
     // Start merkle readiness tracker
     info!("Starting merkle readiness tracker...");
@@ -282,6 +303,8 @@ async fn main() -> anyhow::Result<()> {
         ledger_state_store.clone(),
         config.allow_sparse_blocks,
         config.poll_interval(),
+        config.merkle_readiness_stall_threshold(),
+        merkle_readiness_health.clone(),
     );
     info!("Merkle readiness tracker started");
 
@@ -294,6 +317,7 @@ async fn main() -> anyhow::Result<()> {
         keepalive_manager: keepalive_manager.clone(),
         snapshot_client,
         ledger_state_store,
+        merkle_readiness_health,
         metrics_handle,
         server_secret,
     };

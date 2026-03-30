@@ -16,9 +16,12 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
+use crate::metrics;
+
 const BUCKET_NAME: &str = "ledger_state_store";
 const OBJECT_NAME: &str = "ledger_state";
 const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(5);
+const DEFAULT_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 pub struct LedgerStateSnapshot {
@@ -66,6 +69,8 @@ pub enum LedgerStateStoreError {
     NotFound,
     #[error("ledger state not ready for requested merkle update")]
     NotReady(MerkleUpdateNotReady),
+    #[error("ledger state fetch timed out: {0}")]
+    Timeout(String),
     #[error("failed to fetch ledger state from NATS: {0}")]
     Fetch(String),
     #[error("failed to deserialize ledger state: {0}")]
@@ -85,6 +90,7 @@ pub struct LedgerStateStore {
     cache: Arc<RwLock<Option<CachedSnapshot>>>,
     cache_ttl: Duration,
     object_store: Arc<RwLock<Option<ObjectStore>>>,
+    fetch_timeout: Duration,
 }
 
 impl LedgerStateStore {
@@ -94,6 +100,7 @@ impl LedgerStateStore {
             cache: Arc::new(RwLock::new(None)),
             cache_ttl: DEFAULT_CACHE_TTL,
             object_store: Arc::new(RwLock::new(None)),
+            fetch_timeout: DEFAULT_FETCH_TIMEOUT,
         }
     }
 
@@ -103,6 +110,17 @@ impl LedgerStateStore {
             cache: Arc::new(RwLock::new(None)),
             cache_ttl,
             object_store: Arc::new(RwLock::new(None)),
+            fetch_timeout: DEFAULT_FETCH_TIMEOUT,
+        }
+    }
+
+    pub fn with_fetch_timeout(nats_client: NatsClient, fetch_timeout: Duration) -> Self {
+        Self {
+            nats_client,
+            cache: Arc::new(RwLock::new(None)),
+            cache_ttl: DEFAULT_CACHE_TTL,
+            object_store: Arc::new(RwLock::new(None)),
+            fetch_timeout,
         }
     }
 
@@ -173,6 +191,30 @@ impl LedgerStateStore {
     }
 
     async fn fetch_snapshot(&self) -> Result<Option<LedgerStateSnapshot>, LedgerStateStoreError> {
+        let result = tokio::time::timeout(self.fetch_timeout, self.fetch_snapshot_inner()).await;
+        match result {
+            Ok(Ok(snapshot)) => Ok(snapshot),
+            Ok(Err(err)) => {
+                if matches!(err, LedgerStateStoreError::Fetch(_)) {
+                    self.reset_object_store().await;
+                    metrics::record_ledger_state_fetch_error();
+                }
+                Err(err)
+            }
+            Err(_) => {
+                self.reset_object_store().await;
+                metrics::record_ledger_state_fetch_timeout();
+                Err(LedgerStateStoreError::Timeout(format!(
+                    "exceeded {}s",
+                    self.fetch_timeout.as_secs()
+                )))
+            }
+        }
+    }
+
+    async fn fetch_snapshot_inner(
+        &self,
+    ) -> Result<Option<LedgerStateSnapshot>, LedgerStateStoreError> {
         let store = self.get_object_store().await?;
         let mut object = match store.get(OBJECT_NAME).await {
             Ok(object) => object,
@@ -257,6 +299,11 @@ impl LedgerStateStore {
         }
 
         Ok(store)
+    }
+
+    async fn reset_object_store(&self) {
+        let mut guard = self.object_store.write().await;
+        *guard = None;
     }
 
     pub fn not_ready_from_snapshot(

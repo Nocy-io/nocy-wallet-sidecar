@@ -1,5 +1,8 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{
+    atomic::{AtomicI64, AtomicU64, Ordering},
+    Arc,
+};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sqlx::PgPool;
 use tracing::{error, info, warn};
@@ -13,10 +16,78 @@ use crate::error::AppError;
 use crate::ledger_state_store::LedgerStateStore;
 use crate::metrics::{
     record_merkle_not_ready, record_merkle_readiness_duration_ms,
-    record_merkle_readiness_lag_blocks, record_merkle_ready_height,
+    record_merkle_readiness_lag_blocks, record_merkle_readiness_stall,
+    record_merkle_ready_height, set_merkle_readiness_stall_seconds,
 };
 
 const DEFAULT_BATCH_SIZE: i64 = 500;
+
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+#[derive(Clone)]
+pub struct MerkleReadinessHealth {
+    last_ready_height: Arc<AtomicI64>,
+    last_chain_head: Arc<AtomicI64>,
+    last_advanced_ms: Arc<AtomicU64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MerkleReadinessStatus {
+    pub stalled: bool,
+    pub stall_duration: Duration,
+    pub merkle_ready_height: i64,
+    pub chain_head: i64,
+}
+
+impl MerkleReadinessHealth {
+    pub fn new() -> Self {
+        Self {
+            last_ready_height: Arc::new(AtomicI64::new(-1)),
+            last_chain_head: Arc::new(AtomicI64::new(-1)),
+            last_advanced_ms: Arc::new(AtomicU64::new(now_millis())),
+        }
+    }
+
+    pub fn record_progress(&self, merkle_ready_height: i64, chain_head: i64) {
+        self.last_ready_height
+            .store(merkle_ready_height, Ordering::Relaxed);
+        self.last_chain_head.store(chain_head, Ordering::Relaxed);
+        self.last_advanced_ms.store(now_millis(), Ordering::Relaxed);
+    }
+
+    pub fn record_no_progress(&self, merkle_ready_height: i64, chain_head: i64) {
+        self.last_ready_height
+            .store(merkle_ready_height, Ordering::Relaxed);
+        self.last_chain_head.store(chain_head, Ordering::Relaxed);
+    }
+
+    pub fn status(&self, stall_threshold: Duration) -> MerkleReadinessStatus {
+        let chain_head = self.last_chain_head.load(Ordering::Relaxed);
+        let merkle_ready_height = self.last_ready_height.load(Ordering::Relaxed);
+        let last_advanced_ms = self.last_advanced_ms.load(Ordering::Relaxed);
+        let now_ms = now_millis();
+
+        let stall_duration = if chain_head > merkle_ready_height && now_ms >= last_advanced_ms {
+            Duration::from_millis(now_ms - last_advanced_ms)
+        } else {
+            Duration::from_secs(0)
+        };
+
+        let stalled = chain_head > merkle_ready_height && stall_duration >= stall_threshold;
+
+        MerkleReadinessStatus {
+            stalled,
+            stall_duration,
+            merkle_ready_height,
+            chain_head,
+        }
+    }
+}
 
 #[derive(Debug)]
 enum BatchOutcome {
@@ -37,8 +108,13 @@ pub fn start_merkle_readiness_tracker(
     ledger_state_store: Arc<LedgerStateStore>,
     allow_sparse_blocks: bool,
     poll_interval: Duration,
+    stall_threshold: Duration,
+    health: Arc<MerkleReadinessHealth>,
 ) {
     tokio::spawn(async move {
+        let mut last_chain_head: i64 = -1;
+        let mut last_ready_height: i64 = -1;
+        let mut last_stall_logged_at: Option<std::time::Instant> = None;
         loop {
             let started = std::time::Instant::now();
             match process_merkle_readiness_batch(
@@ -54,6 +130,11 @@ pub fn start_merkle_readiness_tracker(
                     new_ready_height,
                     chain_head,
                 }) => {
+                    last_chain_head = chain_head;
+                    last_ready_height = new_ready_height;
+                    health.record_progress(new_ready_height, chain_head);
+                    last_stall_logged_at = None;
+                    set_merkle_readiness_stall_seconds(Duration::from_secs(0));
                     info!(
                         processed,
                         merkle_ready_height = new_ready_height,
@@ -70,6 +151,11 @@ pub fn start_merkle_readiness_tracker(
                     chain_head,
                     merkle_ready_height,
                 }) => {
+                    last_chain_head = chain_head;
+                    last_ready_height = merkle_ready_height;
+                    health.record_no_progress(merkle_ready_height, chain_head);
+                    let status = health.status(stall_threshold);
+                    set_merkle_readiness_stall_seconds(status.stall_duration);
                     if reason != "caught_up" {
                         info!(reason, chain_head, "Merkle readiness made no progress");
                     }
@@ -79,10 +165,45 @@ pub fn start_merkle_readiness_tracker(
                     record_merkle_ready_height(merkle_ready_height);
                     record_merkle_readiness_lag_blocks(chain_head - merkle_ready_height);
                     record_merkle_readiness_duration_ms(started.elapsed());
+                    if status.stalled {
+                        let should_log = last_stall_logged_at
+                            .map(|logged| logged.elapsed() >= stall_threshold)
+                            .unwrap_or(true);
+                        if should_log {
+                            record_merkle_readiness_stall();
+                            warn!(
+                                chain_head = status.chain_head,
+                                merkle_ready_height = status.merkle_ready_height,
+                                stall_seconds = status.stall_duration.as_secs(),
+                                "Merkle readiness stalled beyond threshold"
+                            );
+                            last_stall_logged_at = Some(std::time::Instant::now());
+                        }
+                    }
                 }
                 Err(err) => {
                     error!(error = %err, "Merkle readiness batch failed");
                     record_merkle_readiness_duration_ms(started.elapsed());
+                    if last_chain_head >= 0 {
+                        health.record_no_progress(last_ready_height, last_chain_head);
+                        let status = health.status(stall_threshold);
+                        set_merkle_readiness_stall_seconds(status.stall_duration);
+                        if status.stalled {
+                            let should_log = last_stall_logged_at
+                                .map(|logged| logged.elapsed() >= stall_threshold)
+                                .unwrap_or(true);
+                            if should_log {
+                                record_merkle_readiness_stall();
+                                warn!(
+                                    chain_head = status.chain_head,
+                                    merkle_ready_height = status.merkle_ready_height,
+                                    stall_seconds = status.stall_duration.as_secs(),
+                                    "Merkle readiness stalled beyond threshold"
+                                );
+                                last_stall_logged_at = Some(std::time::Instant::now());
+                            }
+                        }
+                    }
                 }
             }
 

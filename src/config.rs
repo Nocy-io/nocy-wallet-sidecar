@@ -49,6 +49,10 @@ pub struct Config {
     #[serde(default = "default_upstream_timeout_secs")]
     pub upstream_timeout_secs: u64,
 
+    /// Timeout for ledger state snapshot fetch from NATS object store in seconds
+    #[serde(default = "default_ledger_state_fetch_timeout_secs")]
+    pub ledger_state_fetch_timeout_secs: u64,
+
     /// SSE heartbeat interval in seconds
     #[serde(default = "default_heartbeat_interval_secs")]
     pub heartbeat_interval_secs: u64,
@@ -64,6 +68,10 @@ pub struct Config {
     /// Database connection acquire timeout in seconds
     #[serde(default = "default_db_acquire_timeout_secs")]
     pub db_acquire_timeout_secs: u64,
+
+    /// Merkle readiness stall threshold in seconds
+    #[serde(default = "default_merkle_readiness_stall_secs")]
+    pub merkle_readiness_stall_secs: u64,
 
 }
 
@@ -87,6 +95,10 @@ fn default_upstream_timeout_secs() -> u64 {
     30
 }
 
+fn default_ledger_state_fetch_timeout_secs() -> u64 {
+    30
+}
+
 fn default_heartbeat_interval_secs() -> u64 {
     15
 }
@@ -101,6 +113,10 @@ fn default_sse_send_timeout_secs() -> u64 {
 
 fn default_db_acquire_timeout_secs() -> u64 {
     5
+}
+
+fn default_merkle_readiness_stall_secs() -> u64 {
+    120
 }
 
 impl Config {
@@ -125,6 +141,11 @@ impl Config {
         Duration::from_secs(self.upstream_timeout_secs)
     }
 
+    /// Get ledger state snapshot fetch timeout as Duration
+    pub fn ledger_state_fetch_timeout(&self) -> Duration {
+        Duration::from_secs(self.ledger_state_fetch_timeout_secs)
+    }
+
     /// Get SSE heartbeat interval as Duration
     pub fn heartbeat_interval(&self) -> Duration {
         Duration::from_secs(self.heartbeat_interval_secs)
@@ -143,6 +164,11 @@ impl Config {
     /// Get database acquire timeout as Duration
     pub fn db_acquire_timeout(&self) -> Duration {
         Duration::from_secs(self.db_acquire_timeout_secs)
+    }
+
+    /// Get merkle readiness stall threshold as Duration
+    pub fn merkle_readiness_stall_threshold(&self) -> Duration {
+        Duration::from_secs(self.merkle_readiness_stall_secs)
     }
 
     /// Get server secret as bytes, parsing from hex if configured or generating random.

@@ -13,10 +13,10 @@ COPY migrations ./migrations
 
 RUN cargo build --release --bin nocy-wallet-feed
 
-FROM debian:bookworm-slim AS runtime
+FROM ubuntu:24.04 AS runtime
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl libssl3 \
+  && apt-get install -y --no-install-recommends ca-certificates curl libssl3t64 \
   && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --shell /usr/sbin/nologin appuser

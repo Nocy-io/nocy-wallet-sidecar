@@ -6,7 +6,7 @@
 //! - SSE client count
 
 use metrics::{counter, gauge, histogram};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Metric names as constants for consistency
 pub mod names {
@@ -21,6 +21,10 @@ pub mod names {
     pub const MERKLE_READINESS_LAG_BLOCKS: &str = "merkle_readiness_lag_blocks";
     pub const MERKLE_READINESS_UPDATE_DURATION_MS: &str = "merkle_readiness_update_duration_ms";
     pub const MERKLE_NOT_READY_TOTAL: &str = "merkle_not_ready_total";
+    pub const MERKLE_READINESS_STALL_SECONDS: &str = "merkle_readiness_stall_seconds";
+    pub const MERKLE_READINESS_STALL_TOTAL: &str = "merkle_readiness_stall_total";
+    pub const LEDGER_STATE_FETCH_TIMEOUT_TOTAL: &str = "ledger_state_fetch_timeout_total";
+    pub const LEDGER_STATE_FETCH_ERROR_TOTAL: &str = "ledger_state_fetch_error_total";
 }
 
 /// Record a DB query duration
@@ -91,6 +95,26 @@ pub fn record_merkle_readiness_duration_ms(duration: std::time::Duration) {
 /// Record a not-ready outcome for merkle readiness.
 pub fn record_merkle_not_ready() {
     counter!(names::MERKLE_NOT_READY_TOTAL).increment(1);
+}
+
+/// Record a merkle readiness stall event.
+pub fn record_merkle_readiness_stall() {
+    counter!(names::MERKLE_READINESS_STALL_TOTAL).increment(1);
+}
+
+/// Record current merkle readiness stall duration in seconds.
+pub fn set_merkle_readiness_stall_seconds(duration: Duration) {
+    gauge!(names::MERKLE_READINESS_STALL_SECONDS).set(duration.as_secs_f64());
+}
+
+/// Record a ledger state snapshot fetch timeout.
+pub fn record_ledger_state_fetch_timeout() {
+    counter!(names::LEDGER_STATE_FETCH_TIMEOUT_TOTAL).increment(1);
+}
+
+/// Record a ledger state snapshot fetch error.
+pub fn record_ledger_state_fetch_error() {
+    counter!(names::LEDGER_STATE_FETCH_ERROR_TOTAL).increment(1);
 }
 
 /// Helper struct for timing operations

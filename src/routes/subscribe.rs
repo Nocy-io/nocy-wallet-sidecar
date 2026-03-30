@@ -1387,7 +1387,8 @@ async fn build_block_bundles_tx(
                                         );
                                         return Ok(BuildBlockBundlesResult::NotReady(info));
                                     }
-                                    Err(LedgerStateStoreError::Fetch(_)) => {
+                                    Err(LedgerStateStoreError::Fetch(_))
+                                    | Err(LedgerStateStoreError::Timeout(_)) => {
                                         let info = not_ready_info_from_snapshot(
                                             None,
                                             from_index as u64,
@@ -1491,7 +1492,8 @@ async fn build_block_bundles_tx(
                                 );
                                 return Ok(BuildBlockBundlesResult::NotReady(info));
                             }
-                            Err(LedgerStateStoreError::Fetch(_)) => {
+                            Err(LedgerStateStoreError::Fetch(_))
+                            | Err(LedgerStateStoreError::Timeout(_)) => {
                                 let info = not_ready_info_from_snapshot(
                                     None,
                                     from_index as u64,
