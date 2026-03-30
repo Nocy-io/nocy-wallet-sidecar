@@ -68,12 +68,12 @@ rand = "0.8"
 # Cryptographic hashing for session ID generation
 blake3 = "1"
 
-# Ledger state decoding + merkle update generation
-# Using git dependency from midnight-ledger monorepo
-midnight-ledger = { git = "https://github.com/midnightntwrk/midnight-ledger.git", tag = "ledger-6.1.0-alpha.6", package = "midnight-ledger" }
-midnight-serialize = { git = "https://github.com/midnightntwrk/midnight-ledger.git", tag = "ledger-6.1.0-alpha.6", package = "midnight-serialize" }
-midnight-storage = { git = "https://github.com/midnightntwrk/midnight-ledger.git", tag = "ledger-6.1.0-alpha.6", package = "midnight-storage" }
-midnight-transient-crypto = { git = "https://github.com/midnightntwrk/midnight-ledger.git", tag = "ledger-6.1.0-alpha.6", package = "midnight-transient-crypto" }
+# Ledger state decoding + merkle update generation.
+# Target: midnight-ledger 8.0.3 (mainnet-compatible, node-0.22.x required).
+midnight-ledger = { git = "https://github.com/midnightntwrk/midnight-ledger.git", tag = "ledger-8.0.3", package = "midnight-ledger" }
+midnight-serialize = { git = "https://github.com/midnightntwrk/midnight-ledger.git", tag = "ledger-8.0.3", package = "midnight-serialize" }
+midnight-storage = { git = "https://github.com/midnightntwrk/midnight-ledger.git", tag = "ledger-8.0.3", package = "midnight-storage" }
+midnight-transient-crypto = { git = "https://github.com/midnightntwrk/midnight-ledger.git", tag = "ledger-8.0.3", package = "midnight-transient-crypto" }
 
 [dev-dependencies]
 tokio-test = "0.4"

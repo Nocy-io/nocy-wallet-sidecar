@@ -52,8 +52,9 @@ struct ConnectData {
     connect: String,
 }
 
-/// Response from upstream connect endpoint
-/// Session ID is a 32-byte SHA256 hash, hex-encoded
+/// Response from upstream connect endpoint.
+/// As of indexer v4.0.0-rc.2 the session token is randomly generated per-connection,
+/// not a deterministic hash. Never persist or reuse across restarts.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectResponse {
@@ -90,14 +91,18 @@ impl UpstreamClient {
 
     fn graphql_endpoint(&self) -> String {
         let base = self.base_url.trim_end_matches('/');
-        // Prefer the indexer-api v3 GraphQL endpoint, but allow callers to pass
-        // an explicit GraphQL endpoint (e.g. ".../api/v3/graphql" or ".../graphql").
+        // Support callers passing an explicit GraphQL endpoint or a versioned base.
+        // Indexer API v4 is required (midnight-indexer >= 4.0.0).
         if base.ends_with("/graphql") {
             base.to_string()
-        } else if base.ends_with("/api/v3") {
+        } else if base.ends_with("/api/v4") {
             format!("{}/graphql", base)
+        } else if base.ends_with("/api/v3") {
+            // Migrate legacy v3 callers to v4 automatically.
+            let v4_base = base.trim_end_matches("/api/v3");
+            format!("{}/api/v4/graphql", v4_base)
         } else {
-            format!("{}/api/v3/graphql", base)
+            format!("{}/api/v4/graphql", base)
         }
     }
 
