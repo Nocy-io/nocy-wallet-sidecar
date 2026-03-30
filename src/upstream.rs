@@ -93,7 +93,17 @@ impl UpstreamClient {
         let base = self.base_url.trim_end_matches('/');
         // Support callers passing an explicit GraphQL endpoint or a versioned base.
         // Indexer API v4 is required (midnight-indexer >= 4.0.0).
-        if base.ends_with("/graphql") {
+        //
+        // Order matters: check v3-specific suffixes BEFORE the generic /graphql suffix,
+        // otherwise URLs like "…/api/v3/graphql" would pass through unchanged.
+        if base.ends_with("/api/v4/graphql") {
+            base.to_string()
+        } else if base.ends_with("/api/v3/graphql") {
+            // Migrate legacy v3 full endpoint to v4.
+            let v4_base = base.trim_end_matches("/api/v3/graphql");
+            format!("{}/api/v4/graphql", v4_base)
+        } else if base.ends_with("/graphql") {
+            // Explicit non-versioned GraphQL endpoint — trust the caller.
             base.to_string()
         } else if base.ends_with("/api/v4") {
             format!("{}/graphql", base)

@@ -620,7 +620,7 @@ The sidecar provides raw ledger event bytes that clients parse using the Midnigh
 Raw event bytes use the `event[v6]` tagged serialization format. Parse with:
 
 ```typescript
-import { deserializeLedgerEvent } from '@midnight-ntwrk/ledger-v6';
+import { deserializeLedgerEvent } from '@midnight-ntwrk/ledger-v8';
 
 // Parse raw ZswapInput event from feed
 const eventBytes = Buffer.from(item.raw, 'hex');
