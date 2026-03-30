@@ -612,8 +612,8 @@ The sidecar provides raw ledger event bytes that clients parse using the Midnigh
 
 | Package | Version | Notes |
 |---------|---------|-------|
-| `@midnight-ntwrk/ledger-v6` | `^6.1.0-alpha.6` | JavaScript/TypeScript SDK for parsing raw event bytes |
-| `midnight-ledger` (Rust) | `^6.1.0` | Rust SDK for parsing raw event bytes |
+| `@midnight-ntwrk/ledger` | `^8.0.3` | JavaScript/TypeScript SDK for parsing raw event bytes |
+| `midnight-ledger` (Rust) | `^8.0.3` | Rust SDK for parsing raw event bytes |
 
 **Event Parsing:**
 
@@ -637,7 +637,7 @@ if (event.type === 'ZswapInput') {
 
 | Protocol Version | SDK Support | Notes |
 |------------------|-------------|-------|
-| 2 | `^6.1.0-alpha.6` | Current mainnet version |
+| 2 | `^8.0.3` | Current mainnet version (ledger-8.0.3, indexer v4) |
 
 ---
 

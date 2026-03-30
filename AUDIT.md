@@ -195,7 +195,7 @@ The ledger SDK needs events to:
 
 2. **Event Ordering**: ✅ IMPLEMENTED - Added `validate_event_ordering()` function that detects gaps in `ledger_event_id` sequences within transactions. Gaps are logged with warnings and recorded via the `event_ordering_anomalies_total` Prometheus metric (with `type=ledger_event_gap` label).
 
-3. **Client SDK Version**: ✅ IMPLEMENTED - Added "SDK Compatibility" section to API.md documenting `@midnight/ledger ^6.1.0` (JS/TS) and `midnight-ledger ^6.1.0` (Rust) requirements, including code examples for parsing raw event bytes and a protocol version compatibility matrix.
+3. **Client SDK Version**: ✅ IMPLEMENTED - Added "SDK Compatibility" section to API.md documenting `@midnight-ntwrk/ledger ^8.0.3` (JS/TS) and `midnight-ledger ^8.0.3` (Rust) requirements, including code examples for parsing raw event bytes and a protocol version compatibility matrix.
 
 ---
 
